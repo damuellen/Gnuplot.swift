@@ -31,20 +31,21 @@ plot.commands(.svg(path: "")) // returns the gnuplot commands
 
 try plot(.png(path: "Curves.png")) // execute gnuplot
 ```
+<img src="https://github.com/damuellen/Gnuplot.swift/blob/7008a0645fde084a698ef3be839d8af6959086a8/Curves.png" width="50%">
 
 ## Initializers
 ```Swift
-    public init<T>(xys: [[[T]]], titles: [String] = [], style: Style = .linePoints) where T : FloatingPoint
+init<T>(xys: [[[T]]], titles: [String] = [], style: Style = .linePoints) where T : FloatingPoint
 
-    public init<T>(xy1s: [[[T]]], xy2s: [[[T]]] = [], titles: [String] = [], style: Style = .linePoints) where T : FloatingPoint
+init<T>(xy1s: [[[T]]], xy2s: [[[T]]] = [], titles: [String] = [], style: Style = .linePoints) where T : FloatingPoint
 
-    public convenience init<S, F>(xys: S..., titles: [String] = [], style: Style = .linePoints) where S : Sequence, F : FloatingPoint, F : SIMDScalar, S.Element == SIMD2<F>
+convenience init<S, F>(xys: S..., titles: [String] = [], style: Style = .linePoints) where S : Sequence, F : FloatingPoint, F : SIMDScalar, S.Element == SIMD2<F>
 
-    public convenience init<S, F>(xys: S..., titles: [String] = [], style: Style = .linePoints) where S : Sequence, F : FloatingPoint, S.Element == [F]
+convenience init<S, F>(xys: S..., titles: [String] = [], style: Style = .linePoints) where S : Sequence, F : FloatingPoint, S.Element == [F]
 
-    public convenience init<S, F>(xs: S..., ys: S..., titles: String..., style: Style = .linePoints) where S : Collection, F : FloatingPoint, F == S.Element
+convenience init<S, F>(xs: S..., ys: S..., titles: String..., style: Style = .linePoints) where S : Collection, F : FloatingPoint, F == S.Element
 
-    public convenience init<X, Y, F, S>(xs: X, ys: Y, titles: String..., style: Style = .linePoints) where X : Collection, Y : Collection, F : FloatingPoint, F == X.Element, S : SIMD, S == Y.Element, X.Element == S.Scalar
+convenience init<X, Y, F, S>(xs: X, ys: Y, titles: String..., style: Style = .linePoints) where X : Collection, Y : Collection, F : FloatingPoint, F == X.Element, S : SIMD, S == Y.Element, X.Element == S.Scalar
 
-    public convenience init<T>(xy1s: [[T]]..., xy2s: [[T]]..., titles: String..., style: Style = .linePoints) where T : FloatingPoint
+convenience init<T>(xy1s: [[T]]..., xy2s: [[T]]..., titles: String..., style: Style = .linePoints) where T : FloatingPoint
 ```

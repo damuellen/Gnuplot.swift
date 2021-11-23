@@ -31,7 +31,7 @@ plot.commands(.svg(path: "")) // returns the gnuplot commands
 
 try plot(.png(path: "Curves.png")) // execute gnuplot
 ```
-<img src="https://github.com/damuellen/Gnuplot.swift/blob/7008a0645fde084a698ef3be839d8af6959086a8/Curves.png" width="50%">
+<img src="https://github.com/damuellen/Gnuplot.swift/blob/7008a0645fde084a698ef3be839d8af6959086a8/Curves.png" width="100%">
 
 ## Initializers
 ```Swift

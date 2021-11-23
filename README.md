@@ -10,15 +10,24 @@ And use this convenient wrapper around gnuplot.
 Tested under Linux, macOS, and Windows.
 Works also in Swift Playground.
 
-## Example
+## Examples
 ```Swift
 import Gnuplot
+
+do {
+  let plot = Gnuplot(data: "")
+  plot.settings["key"] = "below"
+  plot.userCommand = "plot sin(x)"
+  try plot(.pdf(path: "/Users/daniel/Desktop/sinus.pdf"))
+}
 
 var curves = [[[Double]]](repeating: [[Double]](), count: 3)
 curves = [ // Supports array of arrays
   [[1,2],[2,4],[3,5],[4,6],[5,7]],
   [[1,3],[2,4],[3,6],[4,6],[5,8]],
   [[1,1],[2,2],[3,4],[4,5],[5,6]]]
+  
+let curves2 = [[[1,2,3,1],[2,4,4,2],[3,5,6,4],[4,6,6,5],[5,7,8,6]]] // also allowed same output as curves
 
 let plot = Gnuplot(xys: curves, titles: ["Best1", "Best2", "Best3"])
 .set(title: "Curves").set(xlabel: "Iteration").set(ylabel: "Foo")

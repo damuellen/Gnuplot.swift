@@ -96,10 +96,11 @@ public final class Gnuplot: CustomStringConvertible {
     }
     return data
     #else
-    try stdin.fileHandleForWriting.close()
     if #available(macOS 10.15.4, *) {
+      try stdin.fileHandleForWriting.close()
       return try stdout.fileHandleForReading.readToEnd()
     } else {
+      stdin.fileHandleForWriting.closeFile()
       return stdout.fileHandleForReading.readDataToEndOfFile()
     }
     #endif

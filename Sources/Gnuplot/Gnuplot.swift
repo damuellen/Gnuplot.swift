@@ -120,9 +120,18 @@ public final class Gnuplot: CustomStringConvertible {
       config = settings.concatenated + PNG.concatenated
     }
     let plot = userPlot ?? defaultPlot
-    return datablock + config 
-      + (multiplot > 0 ? "set multiplot layout 1,\(multiplot)\n" : "")
-      + plot + (multiplot > 0 ? "unset multiplot\n" : "\n")
+    if multiplot > 1 {
+      let layout: (rows: Int, cols: Int)
+      if multiplot == 9 { layout = (3, 3) } else {
+        let z = multiplot.quotientAndRemainder(dividingBy: 2)
+        let (x,y) = (z.quotient, (multiplot / z.quotient))
+        layout = (min(x,y), max(x,y) + (z.remainder > 0 ? 1 : 0))
+      }
+      return datablock + config 
+        + "set multiplot layout \(layout.rows),\(layout.cols) rowsfirst\n"
+        + plot + "\nreset session\nunset multiplot\n"
+    }
+    return datablock + config + plot + "\nreset session\n"
   }
 
   @discardableResult public func plot(

@@ -120,6 +120,7 @@ public final class Gnuplot: CustomStringConvertible {
       config = settings.concatenated + PNG.concatenated
     }
     let plot = userPlot ?? defaultPlot
+    let plot = userPlot ?? defaultPlot
     if multiplot > 1 {
       let layout: (rows: Int, cols: Int)
       if multiplot == 9 { layout = (3, 3) } else {
@@ -129,9 +130,9 @@ public final class Gnuplot: CustomStringConvertible {
       }
       return datablock + config 
         + "set multiplot layout \(layout.rows),\(layout.cols) rowsfirst\n"
-        + plot + "\nreset session\nunset multiplot\n"
+        + "\n" + plot + "\nreset session\nunset multiplot\n"
     }
-    return datablock + config + plot + "\nreset session\n"
+    return datablock + config + "\n" + plot + "\nreset session\n"
   }
 
   @discardableResult public func plot(
@@ -312,13 +313,11 @@ public final class Gnuplot: CustomStringConvertible {
       let font = "enhanced font ',"
       #endif
       switch self {
-      case .svg(let path):
-        let height = 750
-        return ["term":"svg size 1000,\(height)\n", "output":"\(path.isEmpty ? "" : ("'" + path + "'"))\n"]
-      case .pdf(let path): return ["term":"pdfcairo size 10,7.1 \(font)14'", "output":"\(path.isEmpty ? "" : ("'" + path + "'"))"]
-      case .png(let path): return ["term":"pngcairo size 1440, 900 \(font)12'", "output":"\(path.isEmpty ? "" : ("'" + path + "'"))"]
-      case .pngSmall(let path): return ["term":"pngcairo size 1024, 720 \(font)12'", "output":"\(path.isEmpty ? "" : ("'" + path + "'"))"]
-      case .pngLarge(let path): return ["term":"pngcairo size 1920, 1200 \(font)14'", "output":"\(path.isEmpty ? "" : ("'" + path + "'"))"]
+      case .svg(let path): return ["term":"svg size 1000,750", "output": path.isEmpty ? "" : "'\(path)'"]
+      case .pdf(let path): return ["term":"pdfcairo size 10,7.1 \(font)14'", "output": path.isEmpty ? "" : "'\(path)'"]
+      case .png(let path): return ["term":"pngcairo size 1440, 900 \(font)12'", "output": path.isEmpty ? "" : "'\(path)'"]
+      case .pngSmall(let path): return ["term":"pngcairo size 1024, 720 \(font)12'", "output": path.isEmpty ? "" : "'\(path)'"]
+      case .pngLarge(let path): return ["term":"pngcairo size 1920, 1200 \(font)14'", "output": path.isEmpty ? "" : "'\(path)'"]
       }
     }
   }

@@ -120,7 +120,6 @@ public final class Gnuplot: CustomStringConvertible {
       config = settings.concatenated + PNG.concatenated
     }
     let plot = userPlot ?? defaultPlot
-    let plot = userPlot ?? defaultPlot
     if multiplot > 1 {
       let layout: (rows: Int, cols: Int)
       if multiplot == 9 { layout = (3, 3) } else {

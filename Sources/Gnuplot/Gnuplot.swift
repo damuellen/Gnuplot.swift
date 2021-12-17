@@ -66,12 +66,26 @@ public final class Gnuplot: CustomStringConvertible {
     #elseif os(macOS)
     gnuplot.executableURL = .init(fileURLWithPath: "/opt/homebrew/bin/gnuplot")
     #endif
+    #if !os(Windows)
     gnuplot.standardInput = Pipe()
+    #endif
     gnuplot.standardOutput = Pipe()
     gnuplot.standardError = nil
     return gnuplot
   }
-  
+  #if os(Windows)
+  @discardableResult public func callAsFunction(_ terminal: Terminal) throws -> Data? {
+    let gnuplot = Gnuplot.process()
+    let plot = URL.temporaryFile().appendingPathExtension("plot")    
+    try commands(terminal).data(using: .utf8)!.write(to: plot)
+    gnuplot.arguments = [plot.path]
+    try gnuplot.run()
+    let stdout = gnuplot.standardOutput as! Pipe
+    let data = try stdout.fileHandleForReading.readToEnd()
+    try plot.removeItem()
+    return data
+  }
+  #else
   /// Execute the plot commands.
   @discardableResult public func callAsFunction(_ terminal: Terminal) throws -> Data? {
     let gnuplot = Gnuplot.process()
@@ -105,7 +119,7 @@ public final class Gnuplot: CustomStringConvertible {
     }
     #endif
   }
-  
+  #endif
   public func commands(_ terminal: Terminal? = nil) -> String {
     let config: String
     if let terminal = terminal {  
@@ -147,6 +161,19 @@ public final class Gnuplot: CustomStringConvertible {
     }
     return self
   }
+  
+  @discardableResult public func plot(
+    index i: Int = 0, x: Int = 1, y: Int = 2, label: Int, rotate: Int = 45, offset: String = "3,1.5"
+  ) -> Self {
+    let command = "$data i \(i) u \(x):\(y):\(label) with labels tc ls 18 rotate by \(rotate) offset \(offset) notitle"
+    if let plot = userPlot {
+      userPlot = plot + ", " + command
+    } else {  
+      userPlot = "plot " + command
+    }
+    return self
+  }
+  
   @discardableResult public func set(title: String) -> Self {
     settings["title"] = "'\(title)'"
     return self

@@ -354,8 +354,12 @@ public final class Gnuplot: CustomStringConvertible {
   private let PDF = ["border 31 lw 1 lc rgb 'black'", "grid ls 18"]
   private let PNG = ["object rectangle from graph 0,0 to graph 1,1 behind fillcolor rgb '#EBEBEB' fillstyle solid noborder"]
 }
-
-
+#if os(Windows)
+extension URL {
+  static func temporaryFile() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
+  func removeItem() throws { try FileManager.default.removeItem(at: self) }
+}
+#endif
 private func separated<T: FloatingPoint>(_ xys: [[T]]) -> String { xys.map { xy in xy.map { "\($0)" }.joined(separator: " ") }.joined(separator: "\n") }
 private func separated<T: FloatingPoint>(_ xys: [[T]], labels: [String]) -> String { 
   zip(xys, labels).map { xy, label in xy.map { "\($0) " }.joined() + label }.joined(separator: "\n") 

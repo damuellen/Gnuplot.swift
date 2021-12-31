@@ -13,6 +13,9 @@ import Foundation
 #if canImport(Cocoa)
 import Cocoa
 #endif
+#if canImport(PythonKit)
+import PythonKit
+#endif
 /// Create graphs using gnuplot.
 public final class Gnuplot: CustomStringConvertible {
   public var description: String { commands() }
@@ -25,7 +28,13 @@ public final class Gnuplot: CustomStringConvertible {
     return NSImage(data: data) 
   }
   #endif
-  
+  #if canImport(PythonKit)
+  public func display() {
+    guard let svg = svg else { return }
+    let display = Python.import("IPython.display")
+    display.display(display.SVG(data: svg))
+  }
+  #endif
   public var svg: String? {
     var last = UInt8(0)
     do { 

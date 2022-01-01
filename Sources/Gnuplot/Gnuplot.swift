@@ -57,6 +57,12 @@ public final class Gnuplot: CustomStringConvertible {
     self.settings = Gnuplot.settings(style)
   }
   
+  public init(plot: String, style: Style = .linePoints) {
+    self.datablock = ""
+    self.defaultPlot = plot
+    self.settings = Gnuplot.settings(style)
+  }
+  
   #if os(Linux)
   private static var running: Process?
   #endif

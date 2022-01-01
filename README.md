@@ -17,7 +17,7 @@ import Gnuplot
 do {
   let plot = Gnuplot(data: "")
   plot.settings["key"] = "below"
-  plot.userCommand = "plot sin(x)"
+  plot.userPlot = "plot sin(x)"
   try plot(.pdf(path: "/Users/daniel/Desktop/sinus.pdf"))
 }
 

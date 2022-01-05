@@ -64,6 +64,12 @@ public final class Gnuplot: CustomStringConvertible {
   }
   
   #if os(Linux)
+  deinit {
+    if let process = Gnuplot.running { 
+      process.terminate()
+      Gnuplot.running = nil
+    }
+  }
   private static var running: Process?
   #endif
   public static func process() -> Process {

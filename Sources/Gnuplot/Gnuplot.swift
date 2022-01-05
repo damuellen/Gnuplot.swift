@@ -65,7 +65,9 @@ public final class Gnuplot: CustomStringConvertible {
   
   #if os(Linux)
   deinit {
-    if let process = Gnuplot.running { 
+    if let process = Gnuplot.running {
+      let stdin = process.standardInput as! Pipe
+      stdin.fileHandleForWriting.write("\nexit\n".data(using: .utf8)!)
       process.waitUntilExit()
       Gnuplot.running = nil
     }

@@ -66,7 +66,7 @@ public final class Gnuplot: CustomStringConvertible {
   #if os(Linux)
   deinit {
     if let process = Gnuplot.running { 
-      process.terminate()
+      process.waitUntilExit()
       Gnuplot.running = nil
     }
   }

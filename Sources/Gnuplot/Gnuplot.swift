@@ -18,54 +18,42 @@ import PythonKit
 #endif
 /// Create graphs using gnuplot.
 public final class Gnuplot: CustomStringConvertible {
-  public var description: String { commands() }
-  public var settings: [String: String]
-  public var userPlot: String? = nil
-  
-  #if canImport(Cocoa)
-  public var image: NSImage? { 
-    guard let data = try? self(.pngSmall(path: "")) else { return nil }
-    return NSImage(data: data) 
+#if canImport(Cocoa) && !targetEnvironment(macCatalyst)
+  public var image: NSImage? {
+    guard let data = try? callAsFunction(.pngSmall("")) else { return nil }
+#if swift(>=5.4)
+    return NSImage(data: data)
+#else
+    return NSImage(data: data!)
+#endif
   }
-  #endif
-  #if canImport(PythonKit)
-  public func display() {
-    guard let svg = svg else { return }
+#endif
+#if canImport(PythonKit)
+  @discardableResult public func display() -> Gnuplot {
+    settings["term"] = "svg size \(width),\(height)"
+    settings["object"] =
+    "rectangle from graph 0,0 to graph 1,1 behind fillcolor rgb '#EBEBEB' fillstyle solid noborder"
+    guard let svg = svg else { return self }
+    settings.removeValue(forKey: "term")
+    settings.removeValue(forKey: "object")
     let display = Python.import("IPython.display")
     display.display(display.SVG(data: svg))
+    return self
   }
-  #endif
-  public var svg: String? {
-    var last = UInt8(0)
-    do { 
-      guard let data = try self(.svg(path: "")) else { return nil }
-      let svg = data.drop(while: {
-        if last == UInt8(ascii: ">") { return false }
-        last = $0
-        return true
-      })
-      return String(decoding: svg, as: Unicode.UTF8.self)
-    } catch { 
-      print(error)
-      return nil 
-    }
-  }
-  
+#endif
   public init(data: String, style: Style = .linePoints) {
     self.datablock = "\n$data <<EOD\n" + data + "\n\n\nEOD\n\n"
     self.defaultPlot = "plot $data"
-    self.settings = Gnuplot.settings(style)
+    self.settings = defaultSettings()
   }
-  
   public init(plot: String, style: Style = .linePoints) {
     self.datablock = ""
     self.defaultPlot = plot
-    self.settings = Gnuplot.settings(style)
+    self.settings = defaultSettings()
   }
-  
-  #if os(Linux)
+#if os(Linux)
   deinit {
-    if let process = Gnuplot.running {
+    if let process = Gnuplot.running, process.isRunning {
       let stdin = process.standardInput as! Pipe
       stdin.fileHandleForWriting.write("\nexit\n".data(using: .utf8)!)
       process.waitUntilExit()
@@ -73,33 +61,56 @@ public final class Gnuplot: CustomStringConvertible {
     }
   }
   private static var running: Process?
-  #endif
+#endif
+
+  public func svg(width: Int = width, height: Int = height)-> String? {
+    do {
+      guard let data = try callAsFunction(.svg(width: width, height: height)) else { return nil }
+      let svg: Data = data.dropFirst(270)
+      return #"<svg width="\#(width+25)" height="\#(height)" viewBox="0 0 \#(width+25) \#(height)" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">"#
+      + String(decoding: svg, as: Unicode.UTF8.self)
+    } catch {
+      print(error)
+      return nil
+    }
+  }
+
+#if os(iOS)
+  @discardableResult public func callAsFunction(_ terminal: Terminal) throws -> Data? {
+    commands(terminal).data(using: .utf8)
+  }
+#else
   public static func process() -> Process {
-    #if os(Linux)
+#if os(Linux)
     if let process = Gnuplot.running { if process.isRunning { return process } }
     let gnuplot = Process()
-    gnuplot.executableURL = .init(fileURLWithPath: "/usr/bin/gnuplot")
+    gnuplot.executableURL = "/usr/bin/gnuplot"
     gnuplot.arguments = ["--persist"]
     Gnuplot.running = gnuplot
-    #else
+#else
     let gnuplot = Process()
-    #endif
-    #if os(Windows)
-    gnuplot.executableURL = .init(fileURLWithPath: "gnuplot.exe")
-    #elseif os(macOS)
-    gnuplot.executableURL = .init(fileURLWithPath: "/opt/homebrew/bin/gnuplot")
-    #endif
-    #if !os(Windows)
+#endif
+#if os(Windows)
+    gnuplot.executableURL = "C:/bin/gnuplot.exe"
+#elseif os(macOS)
+    if #available(macOS 10.13, *) {
+      gnuplot.executableURL = "/opt/homebrew/bin/gnuplot"
+    } else {
+      gnuplot.launchPath = "/opt/homebrew/bin/gnuplot"
+    }
+#endif
+#if !os(Windows)
     gnuplot.standardInput = Pipe()
-    #endif
+#endif
     gnuplot.standardOutput = Pipe()
     gnuplot.standardError = nil
     return gnuplot
   }
-  #if os(Windows)
+#endif
+#if os(Windows)
   @discardableResult public func callAsFunction(_ terminal: Terminal) throws -> Data? {
     let gnuplot = Gnuplot.process()
-    let plot = URL.temporaryFile().appendingPathExtension("plot")    
+    let plot = URL.temporaryFile().appendingPathExtension("plot")
     try commands(terminal).data(using: .utf8)!.write(to: plot)
     gnuplot.arguments = [plot.path]
     try gnuplot.run()
@@ -108,22 +119,26 @@ public final class Gnuplot: CustomStringConvertible {
     try plot.removeItem()
     return data
   }
-  #else
+#elseif !os(iOS)
   /// Execute the plot commands.
   @discardableResult public func callAsFunction(_ terminal: Terminal) throws -> Data? {
     let gnuplot = Gnuplot.process()
-    if !gnuplot.isRunning { try gnuplot.run() }
+    if #available(macOS 10.13, *) {
+      if !gnuplot.isRunning { try gnuplot.run() }
+    } else {
+      if !gnuplot.isRunning { gnuplot.launch() }
+    }
     let stdin = gnuplot.standardInput as! Pipe
     stdin.fileHandleForWriting.write(commands(terminal).data(using: .utf8)!)
     let stdout = gnuplot.standardOutput as! Pipe
-    #if os(Linux)
+#if os(Linux)
     let endOfData: Data
-    if case .svg(let path) = terminal, path.isEmpty {
+    if case .svg(_,_) = terminal {
       endOfData = "</svg>\n\n".data(using: .utf8)!
     } else if case .pdf(let path) = terminal, path.isEmpty {
-      endOfData = Data([37,37,69,79,70,10]) // %%EOF
+      endOfData = Data([37, 37, 69, 79, 70, 10])  // %%EOF
     } else if case .pngSmall(let path) = terminal, path.isEmpty {
-      endOfData = Data([73,69,78,68,174,66,96,130]) // IEND
+      endOfData = Data([73, 69, 78, 68, 174, 66, 96, 130])  // IEND
     } else {
       return nil
     }
@@ -132,7 +147,7 @@ public final class Gnuplot: CustomStringConvertible {
       data.append(stdout.fileHandleForReading.availableData)
     }
     return data
-    #else
+#else
     if #available(macOS 10.15.4, *) {
       try stdin.fileHandleForWriting.close()
       return try stdout.fileHandleForReading.readToEnd()
@@ -140,63 +155,73 @@ public final class Gnuplot: CustomStringConvertible {
       stdin.fileHandleForWriting.closeFile()
       return stdout.fileHandleForReading.readDataToEndOfFile()
     }
-    #endif
+#endif
   }
-  #endif
+#endif
   public func commands(_ terminal: Terminal? = nil) -> String {
     let config: String
-    if let terminal = terminal {  
+    if let terminal = terminal {
       if case .svg = terminal {
-        config = settings.merging(terminal.output){_,new in new}.concatenated + SVG.concatenated } 
-      else if case .pdf = terminal {
-        config = settings.merging(terminal.output){_,new in new}.concatenated + PDF.concatenated }
-      else { 
-        config = settings.merging(terminal.output){_,new in new}.concatenated + PNG.concatenated + SVG.concatenated
+        config = settings.merging(terminal.output) { old, _ in old }.concatenated + SVG.concatenated
+      } else if case .pdf = terminal {
+        config = settings.merging(terminal.output) { old, _ in old }.concatenated + PDF.concatenated
+      } else {
+        config =
+        settings.merging(terminal.output) { old, _ in old }.concatenated + PNG.concatenated
+        + SVG.concatenated
       }
     } else {
-      config = settings.concatenated + PNG.concatenated
+      config = settings.concatenated
     }
     let plot = userPlot ?? defaultPlot
     if multiplot > 1 {
       let layout: (rows: Int, cols: Int)
-      if multiplot == 9 { layout = (3, 3) } else {
+      if multiplot == 9 {
+        layout = (3, 3)
+      } else {
         let z = multiplot.quotientAndRemainder(dividingBy: 2)
-        let (x,y) = (z.quotient, (multiplot / z.quotient))
-        layout = (min(x,y), max(x,y) + (z.remainder > 0 ? 1 : 0))
+        let (x, y) = (z.quotient, (multiplot / z.quotient))
+        layout = (min(x, y), max(x, y) + (x > 1 && z.remainder > 0 ? 1 : 0))
       }
-      return datablock + config 
-        + "set multiplot layout \(layout.rows),\(layout.cols) rowsfirst\n"
-        + "\n" + plot + "\nreset session\nunset multiplot\n"
+      return datablock + config + "\n"
+      + "set multiplot layout \(layout.rows),\(layout.cols) rowsfirst\n"
+      + plot + "\nreset session\nunset multiplot\n"
     }
     return datablock + config + "\n" + plot + "\nreset session\n"
   }
+  public var description: String { commands() }
+  public var settings: [String: String]
+  public var userPlot: String? = nil
 
   @discardableResult public func plot(
     multi: Bool = false, index i: Int = 0, x: Int = 1, y: Int = 2, style: Style = .linePoints
   ) -> Self {
     let (s, l) = style.raw
     multiplot += multi ? 1 : 0
-    let command = "$data i \(i) u \(x):\(y) \(s) w \(l) ls \(Int.random(in: 11...17)) title columnheader(1)"
+    if styles.isEmpty { styles = Array(stride(from: 11, through: 14, by: 1)).shuffled() }
+    let command =
+    "$data i \(i) u \(x):\(y) \(s) w \(l) ls \(styles.removeLast()) title columnheader(1)"
+
     if let plot = userPlot {
       userPlot = plot + (multi ? "\nplot " : ", ") + command
-    } else {  
+    } else {
       userPlot = "plot " + command
     }
     return self
   }
-  
+
   @discardableResult public func plot(
     index i: Int = 0, x: Int = 1, y: Int = 2, label: Int, rotate: Int = 45, offset: String = "3,1.5"
   ) -> Self {
-    let command = "$data i \(i) u \(x):\(y):\(label) with labels tc ls 18 rotate by \(rotate) offset \(offset) notitle"
+    let command =
+    "$data i \(i) u \(x):\(y):\(label) with labels tc ls 18 rotate by \(rotate) offset \(offset) notitle"
     if let plot = userPlot {
       userPlot = plot + ", " + command
-    } else {  
+    } else {
       userPlot = "plot " + command
     }
     return self
   }
-  
   @discardableResult public func set(title: String) -> Self {
     settings["title"] = "'\(title)'"
     return self
@@ -217,117 +242,197 @@ public final class Gnuplot: CustomStringConvertible {
     settings["yrange"] = "\(y.lowerBound):\(y.upperBound)"
     return self
   }
-  private static func settings(_ style: Style) -> [String: String] {
-    let lw: String
-    let ps: String
-    if case .points = style {
-      lw = "lw 2"
-      ps = "ps 1.0"
+  @available(macOS 10.12, *)
+  @discardableResult public func set(xrange: DateInterval) -> Self {
+    settings["xrange"] = "\(xrange.start.timeIntervalSince1970):\(xrange.end.timeIntervalSince1970)"
+    settings["xdata"] = "time"
+    settings["timefmt"] = "'%s'"
+    settings["xtics rotate"] = ""
+
+    if xrange.duration > 86400 {
+      settings["xtics"] = "86400"
+      settings["format x"] = "'%a'"
     } else {
-      lw = "lw 1.5"
-      ps = "ps 1.2"
+      settings["xtics"] = "1800"
+      settings["format x"] = "'%R'"
     }
-    let pt = Array(1...7).shuffled()
-    let dict = [
-      "style line 11":"lt 1 \(lw) pt \(pt[0]) \(ps) lc rgb '#0072bd'",
-      "style line 12":"lt 1 \(lw) pt \(pt[1]) \(ps) lc rgb '#d95319'",
-      "style line 13":"lt 1 \(lw) pt \(pt[2]) \(ps) lc rgb '#edb120'",
-      "style line 14":"lt 1 \(lw) pt \(pt[3]) \(ps) lc rgb '#7e2f8e'",
-      "style line 15":"lt 1 \(lw) pt \(pt[4]) \(ps) lc rgb '#77ac30'",
-      "style line 16":"lt 1 \(lw) pt \(pt[5]) \(ps) lc rgb '#4dbeee'",
-      "style line 17":"lt 1 \(lw) pt \(pt[6]) \(ps) lc rgb '#a2142f'",
-      "style line 18":"lt 1 lw 1 dashtype 3 lc rgb 'black'", 
-      "style line 19":"lt 0 lw 0.5 lc rgb 'black'",      
-      "style line 21":"lt 1 lw 3 pt 9 ps 0.8 lc rgb '#0072bd'",
-      "style line 22":"lt 1 lw 3 pt 9 ps 0.8 lc rgb '#d95319'",
-      "style line 23":"lt 1 lw 3 pt 9 ps 0.8 lc rgb '#edb120'",
-      "style line 24":"lt 1 lw 3 pt 9 ps 0.8 lc rgb '#7e2f8e'",
-      "style line 25":"lt 1 lw 3 pt 9 ps 0.8 lc rgb '#77ac30'",
-      "style line 26":"lt 1 lw 3 pt 9 ps 0.8 lc rgb '#4dbeee'",
-      "style line 27":"lt 1 lw 3 pt 9 ps 0.8 lc rgb '#a2142f'",
-      "label":"textcolor rgb 'black'",
-      "key":"above tc ls 18",
+    if xrange.duration > 86400 * 7 {
+      settings["format x"] = "'%d.%m'"
+    }
+    return self
+  }
+  
+  public init<Scalar: FloatingPoint, Vector: RandomAccessCollection, Tensor: RandomAccessCollection, Series: Collection>
+  (y1s: Series, y2s: Series) where Tensor.Element == Vector, Vector.Element == Scalar, Series.Element == Tensor, Scalar: LosslessStringConvertible {
+    var tables = [String]()
+    for y1 in y1s {
+      let table: String = y1.transposed().map(\.row).joined()
+      tables.append("-\n" + table)
+    }
+    for y2 in y2s {
+      let table: String = y2.transposed().map(\.row).joined()
+      tables.append("-\n" + table)
+    }
+    self.datablock = "\n$data <<EOD\n" + tables.joined(separator: "\n\n") + "\n\n\nEOD\n\n"
+    let setting = [
+      "key": "off", "xdata": "time", "timefmt": "'%s'", "format x": "'%k'",
+      "xtics": "21600 ", "yrange": "0:1", "ytics": "0.25", "term": "pdfcairo size 7.1, 10",
     ]
-    return dict
+    self.settings = defaultSettings().merging(setting) { _, new in new }
+    let y = y1s.count
+    self.defaultPlot = y1s.enumerated().map { i, y1 -> String in
+      "\nset multiplot layout 8,4 rowsfirst\n"
+      + (1...y1.count).map { c in
+        "plot $data i \(i) u ($0*300):\(c) axes x1y1 w l ls 31, $data i \(i+y) u ($0*300):\(c) axes x1y2 w l ls 32"
+      }.joined(separator: "\n") + "\nunset multiplot"
+    }.joined(separator: "\n")
   }
 
-  public init<T: FloatingPoint>(xys: [[[T]]], xylabels: [[String]] = [], titles: [String] = [], style: Style = .linePoints) {
-    let missingTitles = xys.count - titles.count
-    var titles = titles
-    if missingTitles > 0 { titles.append(contentsOf: repeatElement("-", count: missingTitles)) }
-    let data = xys.indices.map { i in 
-      titles[i] + "\n" + (xylabels.endIndex > i ? separated(xys[i], labels: xylabels[i]) : separated(xys[i]))
+  public init<Scalar: FloatingPoint, Vector: Collection, Tensor: Collection, Series: Collection>
+  (xys: Series, xylabels: [[String]] = [], titles: [String] = [], style: Style = .linePoints)
+  where Tensor.Element == Vector, Vector.Element == Scalar, Series.Element == Tensor, Scalar: LosslessStringConvertible {
+    var headers = titles.makeIterator()
+    var tables = [String]()
+    for (i, xy) in xys.enumerated() {
+      let table: String
+      if xylabels.endIndex > i {
+        table = zip(xy, xylabels[i]).map { xy, label -> String in
+          let vector: String = xy.map(String.init).joined(separator: " ")
+          return vector + " " + label + "\n"
+        }.joined()
+      } else {
+        table = xy.map(\.row).joined()
+      }
+      if let title = headers.next() {
+        tables.append(title + "\n" + table)
+      } else {
+        tables.append("-\n" + table)
+      }
     }
-    self.datablock = "\n$data <<EOD\n" + data.joined(separator: "\n\n\n") + "\n\n\nEOD\n\n"
-    self.settings = Gnuplot.settings(style)
+    self.datablock = "\n$data <<EOD\n" + tables.joined(separator: "\n\n") + "\n\nEOD\n\n"
+    self.settings = defaultSettings()
     let (s, l) = style.raw
-    self.defaultPlot = "plot " + xys.indices
-      .map { i in
-        if (xys[i].first?.count ?? 0) > 1 {
-          return (2...xys[i][0].count).map { c in "$data i \(i) u 1:\(c) \(s) w \(l) ls \(i+c+9) title columnheader(1)" }.joined(separator: ", \\\n")
+    var plot = "plot "
+    plot += xys.enumerated()
+      .map { i, t -> String in
+        if (t.first?.count ?? 0) > 1 {
+          return (2...t.first!.count).map { c -> String in
+            "$data i \(i) u 1:\(c) \(s) w \(l) ls \(i+c+29) title columnheader(1)"
+          }.joined(separator: ", \\\n")
         } else {
-          return "$data i \(i) u 0:1 \(s) w \(l) ls \(i+11) title columnheader(1)"
-        }
-      }
-      .joined(separator: ", \\\n") + (xylabels.isEmpty ? "" : ", \\\n" + xylabels.indices.map { i in
-        "$data i \(i) u 1:2:3 with labels tc ls 18 offset char 0,1 notitle"
-      }.joined(separator: ", \\\n"))
-  }
-
-  public init<T: FloatingPoint>(xy1s: [[[T]]], xy2s: [[[T]]] = [], titles: [String] = [], style: Style = .linePoints) {
-    let missingTitles = xy1s.count + xy2s.count - titles.count
-    var titles = titles
-    if missingTitles > 0 { titles.append(contentsOf: repeatElement("-", count: missingTitles)) }
-    self.settings = Gnuplot.settings(style).merging(["ytics": "nomirror", "y2tics": ""]) { (_, new) in new }
-    let y1 = zip(titles, xy1s).map { t, xys in t + "\n" + separated(xys) }
-    let y2 = zip(titles.dropFirst(xy1s.count), xy2s).map { t, xys in t + " ,\n" + separated(xys) }
-    self.datablock = "\n$data <<EOD\n" + y1.joined(separator: "\n\n\n") + (xy2s.isEmpty ? "" : "\n\n\n") + y2.joined(separator: "\n\n\n") + "\n\n\nEOD\n\n"
-    let (s, l) = style.raw
-    self.defaultPlot = "plot " +
-      xy1s.indices
-      .map { i in
-        if (xy1s[i].first?.count ?? 0) > 1 {
-          return (2...xy1s[i][0].count).map { c in "$data i \(i) u 1:\(c) \(s) axes x1y1 w \(l) ls \(i+c+9) title columnheader(1)" }.joined(separator: ", \\\n")
-        } else {
-          return "$data i \(i) u 0:1 \(s) axes x1y1 w \(l) ls \(i+11) title columnheader(1)"
-        }
-      }
-      .joined(separator: ", \\\n") + ", \\\n"
-      + xy2s.indices
-      .map { i in
-        if (xy2s[i].first?.count ?? 0) > 1 {
-          return (2...xy2s[i][0].count).map { c in "$data i \(i + xy1s.endIndex) u 1:\(c) \(s) axes x1y2 w \(l) ls \(i+c+19) title columnheader(1)" }.joined(separator: ", \\\n")
-        } else {
-          return "$data i \(i + xy1s.endIndex) u 0:1 \(s) axes x1y2 w \(l) ls \(i+21) title columnheader(1)"
+          return "$data i \(i) u 0:1 \(s) w \(l) ls \(i+31) title columnheader(1)"
         }
       }
       .joined(separator: ", \\\n")
+    plot += (xylabels.isEmpty
+       ? ""
+       : ", \\\n"
+       + xylabels.indices.map { i -> String in
+      "$data i \(i) u 1:2:3 with labels tc ls 18 offset char 0,1 notitle"
+    }.joined(separator: ", \\\n"))
+    self.defaultPlot = plot
   }
-  public convenience init<S: Sequence, F: FloatingPoint>(xys: S..., labels: [String]..., titles: [String] = [], style: Style = .linePoints) where S.Element == SIMD2<F> { 
-    self.init(xys: xys.map { xy in xy.map { [$0.x, $0.y] } }, xylabels: labels, titles: titles, style: style)
-  }
-  public convenience init<S: Sequence, F: FloatingPoint>(xys: S..., labels: [String]..., titles: [String] = [], style: Style = .linePoints) where S.Element == [F] {
-    self.init(xys: xys.map { xy in xy.map { $0 } }, xylabels: labels, titles: titles, style: style) 
-  }
-  #if swift(>=5.4)
-  public convenience init<S: Collection, F: FloatingPoint>(xs: S..., ys: S..., labels: [String]..., titles: String..., style: Style = .linePoints) where S.Element == F {
-    if ys.isEmpty {
-      self.init(xys: xs.map { $0.map { [$0] } }, titles: titles, style: style)
-    } else if xs.count == 1, ys.count > 1, !ys.map(\.count).contains(where: { $0 != xs[0].count }) {
-      let xys = xs[0].indices.map { index in [xs[0][index]] + ys.map { $0[index] } }
-      self.init(xys: xys, titles: titles, style: style)
-    } else {
-      self.init(xys: zip(xs, ys).map { a, b in zip(a, b).map { [$0, $1] } }, xylabels: labels, titles: titles, style: style)
+
+  public init<Scalar: FloatingPoint, Vector: Collection, Tensor: Collection, Series: Collection>
+  (xy1s: Series, xy2s: Series, titles: [String] = [], style: Style = .linePoints)
+  where Tensor.Element == Vector, Vector.Element == Scalar, Series.Element == Tensor, Scalar: LosslessStringConvertible {
+    let missingTitles = xy1s.count + xy2s.count - titles.count
+    var titles = titles
+    if missingTitles > 0 { titles.append(contentsOf: repeatElement("-", count: missingTitles)) }
+    self.settings = defaultSettings().merging(["ytics": "nomirror", "y2tics": ""]) {
+      (_, new) in new
     }
+    let y1: String = zip(titles, xy1s).map { title, xys -> String in
+      title + "\n" + xys.map(\.row).joined()
+    }.joined(separator: "\n\n")
+    let y2: String = zip(titles.dropFirst(xy1s.count), xy2s).map { title, xys -> String in
+      title + " \n" + xys.map(\.row).joined()
+    }.joined(separator: "\n\n")
+    self.datablock =
+    "\n$data <<EOD\n\(y1)" + (xy2s.isEmpty ? "" : "\n\n\(y2)") + "\n\n\nEOD\n\n"
+    let (s, l) = style.raw
+    var plot = "plot "
+    plot += xy1s.enumerated()
+      .map { i, xy -> String in
+        if (xy.first?.count ?? 0) > 1 {
+          return (2...xy.first!.count).map { c -> String in
+            let ls = (xy2s.isEmpty ? 0 : 20) + i+c+9
+            return "$data i \(i) u 1:\(c) \(s) axes x1y1 w \(l) ls \(ls) title columnheader(1)"
+          }.joined(separator: ", \\\n")
+        } else {
+          let ls = (xy2s.isEmpty ? 0 : 20) + i+11
+          return "$data i \(i) u 0:1 \(s) axes x1y1 w \(l) ls \(ls) title columnheader(1)"
+        }
+      }
+      .joined(separator: ", \\\n") + ", \\\n"
+    plot += xy2s.enumerated()
+      .map { i, xy -> String in
+        if (xy.first?.count ?? 0) > 1 {
+          return (2...xy.first!.count).map { c -> String in
+            "$data i \(i + xy1s.count) u 1:\(c) \(s) axes x1y2 w \(l) ls \(i+c+19) title columnheader(1)"
+          }.joined(separator: ", \\\n")
+        } else {
+          return "$data i \(i + xy1s.count) u 0:1 \(s) axes x1y2 w \(l) ls \(i+21) title columnheader(1)"
+        }
+      }
+      .joined(separator: ", \\\n")
+    self.defaultPlot = plot
   }
-  public convenience init<X: Collection, Y: Collection, F: FloatingPoint, S: SIMD>(xs: X, ys: Y, labels: [String], titles: String..., style: Style = .linePoints) where X.Element == F, Y.Element == S, S.Scalar == F {
-    let xys = ys.first!.indices.map { i in zip(xs, ys).map { [$0.0, $0.1[i]] } }
-    self.init(xys: xys, xylabels: [labels], titles: titles, style: style)
+
+  @available(macOS 10.12, *)
+  public init<Scalar: FloatingPoint, Vector: Collection, Tensor: Collection, Series: Collection>
+  (y1s: Series, y2s: Series, titles: [String] = [], range: DateInterval)
+  where Tensor.Element == Vector, Vector.Element == Scalar, Series.Element == Tensor, Scalar: LosslessStringConvertible {
+    var headers = titles.makeIterator()
+    var tables = [String]()
+    for y1 in y1s {
+      let table: String = y1.map(\.row).joined()
+      if let title = headers.next() {
+        tables.append(title + "\n" + table)
+      } else {
+        tables.append("-\n" + table)
+      }
+    }
+    for y2 in y2s {
+      let table: String = y2.map(\.row).joined()
+      if let title = headers.next() {
+        tables.append(title + "\n" + table)
+      } else {
+        tables.append("-\n" + table)
+      }
+    }
+    self.datablock = "\n$data <<EOD\n" + tables.joined(separator: "\n\n") + "\n\nEOD\n\n"
+    var setting: [String: String] = [
+      "xdata": "time", "timefmt": "'%s'",
+      "xrange": "[\(range.start.timeIntervalSince1970):\(range.end.timeIntervalSince1970)]"
+    ]
+    if !y2s.isEmpty {
+      setting["ytics"] = "nomirror"
+      setting["y2tics"] = ""
+    }
+
+    if range.duration > 86400 {
+      setting["xtics"] = "86400"
+      setting["format x"] = "'%j'"
+    } else {
+      setting["xtics"] = "1800"
+      setting["format x"] = "'%R'"
+      setting["xtics rotate"] = ""
+    }
+
+    self.settings = defaultSettings().merging(setting) { _, new in new }
+    var plot = "plot "
+    plot += y1s.enumerated().map { i, ys -> String in
+      "$data i \(i) u ($0*\(range.duration / Double(ys.count))+\(range.start.timeIntervalSince1970)):\(1) axes x1y1 w l ls \(i+11) title columnheader(1)"
+    }.joined(separator: ", \\\n")
+    if !y2s.isEmpty {
+      plot += ", \\\n" + y2s.enumerated().map { i, ys -> String in
+        "$data i \(i + y1s.count) u ($0*\(range.duration / Double(ys.count))+\(range.start.timeIntervalSince1970)):\(1) axes x1y2 w l ls \(i+21) title columnheader(1)"
+      }.joined(separator: ", \\\n")
+    }
+    self.defaultPlot = plot
   }
-  public convenience init<T: FloatingPoint>(xy1s: [[T]]..., xy2s: [[T]]..., titles: String..., style: Style = .linePoints) {
-     self.init(xy1s: xy1s, xy2s: xy2s, titles: titles, style: style) 
-  }
-  #endif
+
   public enum Style {
     case lines(smooth: Bool)
     case linePoints
@@ -350,42 +455,88 @@ public final class Gnuplot: CustomStringConvertible {
     }
   }
   public enum Terminal {
-    case svg(path: String)
-    case pdf(path: String)
-    case png(path: String)
-    case pngSmall(path: String)
-    case pngLarge(path: String)
-    var output: [String:String] {
-      #if os(Linux)
+    case svg(width: Int, height: Int)
+    case pdf(_ toFile: String)
+    case png(_ toFile: String)
+    case pngSmall(_ toFile: String)
+    case pngLarge(_ toFile: String)
+    var output: [String: String] {
+#if os(Linux)
       let font = "enhanced font 'Times,"
-      #else
+#else
       let font = "enhanced font ',"
-      #endif
+#endif
       switch self {
-      case .svg(let path): return ["term":"svg size 1000,750", "output": path.isEmpty ? "" : "'\(path)'"]
-      case .pdf(let path): return ["term":"pdfcairo size 10,7.1 \(font)14'", "output": path.isEmpty ? "" : "'\(path)'"]
-      case .png(let path): return ["term":"pngcairo size 1440, 900 \(font)12'", "output": path.isEmpty ? "" : "'\(path)'"]
-      case .pngSmall(let path): return ["term":"pngcairo size 1024, 720 \(font)12'", "output": path.isEmpty ? "" : "'\(path)'"]
-      case .pngLarge(let path): return ["term":"pngcairo size 1920, 1200 \(font)14'", "output": path.isEmpty ? "" : "'\(path)'"]
+      case .svg(let w, let h):
+        return ["term": "svg size \(w),\(h)", "output": ""]
+      case .pdf(let path):
+        return [
+          "term": "pdfcairo size 10,7.1 \(font)14'", "output": path.isEmpty ? "" : "'\(path)'",
+        ]
+      case .png(let path):
+        return [
+          "term": "pngcairo size 1440, 900 \(font)12'", "output": path.isEmpty ? "" : "'\(path)'",
+        ]
+      case .pngSmall(let path):
+        return [
+          "term": "pngcairo size 1024, 720 \(font)12'", "output": path.isEmpty ? "" : "'\(path)'",
+        ]
+      case .pngLarge(let path):
+        return [
+          "term": "pngcairo size 1920, 1200 \(font)14'", "output": path.isEmpty ? "" : "'\(path)'",
+        ]
       }
     }
   }
+  private var styles: [Int] = []
   private var multiplot: Int = 0
   private let datablock: String
   private let defaultPlot: String
   private let SVG = ["border 31 lw 0.5 lc rgb 'black'", "grid ls 19"]
   private let PDF = ["border 31 lw 1 lc rgb 'black'", "grid ls 18"]
-  private let PNG = ["object rectangle from graph 0,0 to graph 1,1 behind fillcolor rgb '#EBEBEB' fillstyle solid noborder"]
+  private let PNG = [
+    "object rectangle from graph 0,0 to graph 1,1 behind fillcolor rgb '#EBEBEB' fillstyle solid noborder"
+  ]
 }
+
+fileprivate func defaultSettings() -> [String: String] {
+  var dict: [String: String] = [
+    "style line 18": "lt 1 lw 1 dashtype 3 lc rgb 'black'",
+    "style line 19": "lt 0 lw 0.5 lc rgb 'black'",
+    "label": "textcolor rgb 'black'",
+    "key": "above tc ls 18",
+  ]
+
+  let dark: [String] = ["1F78B4", "33A02C", "E31A1C", "FF7F00"]
+  let light: [String] = ["A6CEE3", "B2DF8A", "FB9A99", "FDBF6F"]
+  let pt = [4,6,8,10].shuffled()
+  pt.indices.forEach { i in
+    dict["style line \(i+11)"] = "lt 1 lw 1.5 pt \(pt[i]) ps 1.0 lc rgb '#\(dark[i])'"
+    dict["style line \(i+21)"] = "lt 1 lw 1.5 pt \(pt[i]+1) ps 1.0 lc rgb '#\(light[i])'"
+  }
+  let mat = ["0072bd", "d95319", "edb120", "7e2f8e", "77ac30", "4dbeee", "a2142f"]
+  mat.indices.forEach { i in
+    dict["style line \(i+31)"] = "lt 1 lw 1.5 pt 7 ps 1.0 lc rgb '#\(mat[i])'"
+  }
+  return dict
+}
+
+public let height = 800
+public let width = 1255
+
+extension Array where Element == String {
+  var concatenated: String { self.map { "set " + $0 + "\n" }.joined() }
+}
+extension Dictionary where Key == String, Value == String {
+  var concatenated: String { self.map { "set " + $0.key + " " + $0.value + "\n" }.joined() }
+}
+extension Collection where Element: FloatingPoint, Element: LosslessStringConvertible {
+  var row: String { self.lazy.map(String.init).joined(separator: " ") + "\n" }
+}
+
 #if os(Windows)
 extension URL {
   static func temporaryFile() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
   func removeItem() throws { try FileManager.default.removeItem(at: self) }
 }
 #endif
-private func separated<T: FloatingPoint>(_ xys: [[T]]) -> String { xys.map { xy in xy.map { "\($0)" }.joined(separator: " ") }.joined(separator: "\n") }
-private func separated<T: FloatingPoint>(_ xys: [[T]], labels: [String]) -> String { 
-  zip(xys, labels).map { xy, label in xy.map { "\($0) " }.joined() + label }.joined(separator: "\n") 
-}
-extension Array where Element == String { var concatenated: String { self.map { "set " + $0 + "\n" }.joined() } }
-extension Dictionary where Key == String, Value == String { var concatenated: String { self.map { "set " + $0.key + " " + $0.value + "\n" }.joined() } }

@@ -91,10 +91,10 @@ public final class Gnuplot: CustomStringConvertible {
     let gnuplot = Process()
 #endif
 #if os(Windows)
-    gnuplot.executableURL = "C:/bin/gnuplot.exe"
+    gnuplot.executableURL = "gnuplot.exe"
 #elseif os(macOS)
     if #available(macOS 10.13, *) {
-      gnuplot.executableURL = "/opt/homebrew/bin/gnuplot"
+      gnuplot.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/gnuplot")
     } else {
       gnuplot.launchPath = "/opt/homebrew/bin/gnuplot"
     }
@@ -532,6 +532,13 @@ extension Dictionary where Key == String, Value == String {
 }
 extension Collection where Element: FloatingPoint, Element: LosslessStringConvertible {
   var row: String { self.lazy.map(String.init).joined(separator: " ") + "\n" }
+}
+
+extension Collection where Self.Iterator.Element: RandomAccessCollection {
+  func transposed() -> [[Self.Iterator.Element.Iterator.Element]] {
+    guard let firstRow = self.first else { return [] }
+    return firstRow.indices.map { index in self.map { $0[index] } }
+  }
 }
 
 #if os(Windows)
